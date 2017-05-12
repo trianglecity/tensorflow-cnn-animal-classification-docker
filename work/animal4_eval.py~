@@ -1,0 +1,386 @@
+
+from PIL import Image
+
+from os import listdir
+from os.path import isfile, join
+
+import fnmatch
+import os
+import math
+import tensorflow as tf
+
+from tensorflow.python.framework import ops
+from tensorflow.python.framework import dtypes
+
+from datetime import datetime
+import time
+
+IMAGE_HEIGHT = 140
+IMAGE_WIDTH  = 160
+
+FLAGS = tf.app.flags.FLAGS
+
+# Basic model parameters.
+
+tf.app.flags.DEFINE_string('train_dir', '/tmp/animal4_train',
+                           """Directory where to write event logs """
+                           """and checkpoint.""")
+tf.app.flags.DEFINE_integer('max_steps', 80, """Number of batches to run.""")
+tf.app.flags.DEFINE_boolean('log_device_placement', False,
+                            """Whether to log device placement.""")
+tf.app.flags.DEFINE_integer('log_frequency', 1,
+                            """How often to log results to the console.""")
+tf.app.flags.DEFINE_integer('batch_size', 3, """Number of images to process in a batch.""")
+
+tf.app.flags.DEFINE_string('checkpoint_dir', '/tmp/animal4_train',
+                           """Directory where to read model checkpoints.""")
+tf.app.flags.DEFINE_integer('num_examples', 80,
+                            """Number of examples to run.""")
+
+def read_animals():
+
+
+	## class
+	class ANIMAL4Record(object):
+    		pass
+
+	## scprit for loading images
+	
+  	result = ANIMAL4Record()	
+
+	
+  	result.height = IMAGE_HEIGHT
+  	result.width  = IMAGE_WIDTH
+  	result.depth  = 3
+  	
+	
+	## bear  -- label 0
+
+	images_bear = []
+	labels_bear = []
+
+	for root, dirs, filenames in os.walk(top = './animals/bear', topdown=True):
+    		for filename in fnmatch.filter(filenames, '*.jpg'):
+        		images_bear.append(os.path.join(root, filename))
+			labels_bear.append(0)
+
+	## deer -- label 1
+
+	images_deer = []
+	labels_deer = []
+
+	for root, dirs, filenames in os.walk(top = './animals/deer', topdown=True):
+    		for filename in fnmatch.filter(filenames, '*.jpg'):
+        		images_deer.append(os.path.join(root, filename))
+			labels_deer.append(1)
+
+	## duck -- label 2
+
+	
+	images_duck = []
+	labels_duck = []
+
+	for root, dirs, filenames in os.walk(top = './animals/duck', topdown=True):
+    		for filename in fnmatch.filter(filenames, '*.jpg'):
+        		images_duck.append(os.path.join(root, filename))
+			labels_duck.append(2)
+
+
+	## turtle -- label 3
+
+	images_turtle = []
+	labels_turtle = []
+
+	for root, dirs, filenames in os.walk(top = './animals/turtle', topdown=True):
+    		for filename in fnmatch.filter(filenames, '*.jpg'):
+        		images_turtle.append(os.path.join(root, filename))
+			labels_turtle.append(3)
+
+	labels_total = labels_bear + labels_deer + labels_duck + labels_turtle
+	images_total = images_bear + images_deer + images_duck + images_turtle
+	
+	
+	for f in images_total:
+    		if not tf.gfile.Exists(f):
+      			raise ValueError('Failed to find file: ' + f)	
+	
+	n_images = len(labels_total)
+	print "n_images = ", n_images	
+
+	
+	# convert string into tensors
+	all_images = ops.convert_to_tensor(images_total, dtype=dtypes.string)
+	all_labels = ops.convert_to_tensor(labels_total, dtype=dtypes.int32)
+	
+
+	# create input queues
+
+	##
+	##	slice_input_producer(
+    	##		tensor_list,
+    	##		num_epochs=None, 	## produces each slice num_epochs times before generating an OutOfRange error.
+    	##		shuffle=True,
+    	##		seed=None,
+    	##		capacity=32,		## Sets the queue capacity.
+    	##		shared_name=None,
+    	##		name=None
+	##	)
+	##
+
+	##	A list of tensors, one for each element of tensor_list
+	##
+	
+	train_input_queue = tf.train.slice_input_producer(
+                                    	[all_images, all_labels],
+				  	num_epochs=10,
+                                    	shuffle=True)
+
+	# process path and string tensor into an image and a label
+	file_content = tf.read_file(train_input_queue[0])
+	train_image = tf.image.decode_jpeg(file_content, channels=3)
+	train_label = train_input_queue[1]
+
+
+	##result.uint8image = tf.image.decode_jpeg(value_image, channels=3)
+	result.uint8image = train_image
+	
+	# The first bytes represent the label, which we convert from uint8->int32.
+        # tf.cast(a, tf.int32) 
+	print labels_total
+		
+	result.label = train_label
+           
+	result.n_images = 80
+
+ 	return result
+ 	
+###
+###
+
+def distorted_inputs( batch_size):
+
+	
+	read_input = read_animals()
+	
+	reshaped_image = tf.cast(read_input.uint8image, tf.float32)
+
+	height = IMAGE_HEIGHT
+  	width = IMAGE_WIDTH
+
+	print "height = ", height
+	print "width = ", width
+
+	## Randomly flip the image horizontally.
+  	distorted_image = tf.image.random_flip_left_right(reshaped_image)
+
+	
+	# Set the shapes of tensors.
+	print read_input.uint8image
+	print distorted_image
+	print read_input.label
+
+	##To use tf.train_batch we need to define the shape of our image tensors before they can be combined into batches.
+
+	## updates the static shape of a Tensor object, 
+	## and it is typically used to provide ADDITIONAL shape information when this cannot be inferred directly. 
+	## It does NOT change the dynamic shape of the tensor.
+
+  	distorted_image.set_shape([height, width, 3])
+
+	##
+	## batch(
+    	##	tensors,
+    	##	batch_size,
+    	##	num_threads=1,
+    	##	capacity=32,
+    	##	enqueue_many=False,
+    	##	shapes=None,
+    	##	dynamic_pad=False,
+    	##	allow_smaller_final_batch=False,
+    	##	shared_name=None,
+    	##	name=None
+	## )
+	##
+  	
+
+	train_image_batch, train_label_batch = tf.train.batch(
+                                    [distorted_image, read_input.label],
+                                    batch_size=batch_size,
+				    capacity=32	
+                                    #,num_threads=1
+                                    )
+
+	print "return batch"
+	print train_image_batch
+	print train_label_batch
+	
+	return train_image_batch, train_label_batch
+
+
+##########
+def inference(features):
+	
+	print "in inference"
+
+	## creates a new tensor with a different dynamic shape
+	input_layer = tf.reshape(features, [-1, IMAGE_HEIGHT, IMAGE_WIDTH, 3])
+	
+	# conv1
+  	with tf.variable_scope('conv1') as scope:
+   
+  		conv1 = tf.layers.conv2d(
+      				input_layer,
+      				filters=32,
+      				kernel_size=[5, 5],
+      				padding="same",
+      				activation=tf.nn.relu)
+
+
+  	# pool1
+  	pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+
+	
+	# Convolutional Layer #2 and Pooling Layer #2
+	with tf.variable_scope('conv2') as scope:
+
+  		conv2 = tf.layers.conv2d(
+      			inputs=pool1,
+      			filters=64,
+      			kernel_size=[5, 5],
+      			padding="same",
+      			activation=tf.nn.relu)
+
+
+  	pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+
+
+	# Dense Layer
+  	pool2_flat = tf.reshape(pool2, [-1, 35 * 40 * 64])
+  	dense = tf.layers.dense(inputs=pool2_flat, units=1024, activation=tf.nn.relu)
+  	
+
+	# Logits Layer
+  	logits = tf.layers.dense(inputs=dense, units=4)
+
+	return logits
+
+def estimate_loss(logits, labels):
+
+	print "in estimate_loss"
+	# Calculate the average cross entropy loss across the batch.
+  	labels = tf.cast(labels, tf.int64)
+
+	## sparse_softmax_cross_entropy_with_logits(
+   	## 						_sentinel=None,
+    	##						labels=None,
+    	##						logits=None,
+    	##						name=None
+	##					)
+
+
+  	cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+      		labels=labels, logits=logits, name='cross_entropy_per_example')
+  	cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+  	tf.add_to_collection('losses', cross_entropy_mean)
+
+  	# The total loss is defined as the cross entropy loss plus all of the weight
+  	# decay terms (L2 loss).
+  	return tf.add_n(tf.get_collection('losses'), name='total_loss')
+	
+
+def eval_once(saver, summary_writer, top_k_op, summary_op):
+  """Run Eval once.
+
+  Args:
+    saver: Saver.
+    summary_writer: Summary writer.
+    top_k_op: Top K op.
+    summary_op: Summary op.
+  """
+  with tf.Session() as sess:
+    ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    
+    if ckpt and ckpt.model_checkpoint_path:
+      # Restores from checkpoint
+      saver.restore(sess, ckpt.model_checkpoint_path)
+      # Assuming model_checkpoint_path looks something like:
+      #   /my-favorite-path/cifar10_train/model.ckpt-0,
+      # extract global_step from it.
+      global_step = ckpt.model_checkpoint_path.split('/')[-1].split('-')[-1]
+    else:
+      print('No checkpoint file found')
+      return
+
+    # Start the queue runners.
+    coord = tf.train.Coordinator()
+    try:
+      threads = []
+      for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
+        threads.extend(qr.create_threads(sess, coord=coord, daemon=True,
+                                         start=True))
+
+      num_iter = int(math.ceil(FLAGS.num_examples / FLAGS.batch_size))
+      true_count = 0  # Counts the number of correct predictions.
+      total_sample_count = num_iter * FLAGS.batch_size
+      step = 0
+      while step < num_iter and not coord.should_stop():
+        predictions = sess.run([top_k_op])
+        true_count += np.sum(predictions)
+        step += 1
+
+      # Compute precision @ 1.
+      precision = true_count / total_sample_count
+      print('%s: precision @ 1 = %.3f' % (datetime.now(), precision))
+
+      summary = tf.Summary()
+      summary.ParseFromString(sess.run(summary_op))
+      summary.value.add(tag='Precision @ 1', simple_value=precision)
+      summary_writer.add_summary(summary, global_step)
+    except Exception as e:  # pylint: disable=broad-except
+      coord.request_stop(e)
+
+    coord.request_stop()
+    coord.join(threads, stop_grace_period_secs=10)
+
+def evaluate():
+  """Eval CIFAR-10 for a number of steps."""
+  with tf.Graph().as_default() as g:
+    # Get images and labels for CIFAR-10.
+    
+    images, labels = distorted_inputs( batch_size = 1)
+
+    # Build a Graph that computes the logits predictions from the
+    # inference model.
+    logits = cifar10.inference(images)
+
+    # Calculate predictions.
+    top_k_op = tf.nn.in_top_k(logits, labels, 1)
+
+    # Restore the moving average version of the learned variables for eval.
+    variable_averages = tf.train.ExponentialMovingAverage(
+        cifar10.MOVING_AVERAGE_DECAY)
+    variables_to_restore = variable_averages.variables_to_restore()
+    saver = tf.train.Saver(variables_to_restore)
+
+    # Build the summary operation based on the TF collection of Summaries.
+    summary_op = tf.summary.merge_all()
+
+    summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
+
+    while True:
+      eval_once(saver, summary_writer, top_k_op, summary_op)
+      if FLAGS.run_once:
+        break
+      time.sleep(FLAGS.eval_interval_secs)
+
+
+def main(argv=None):  # pylint: disable=unused-argument
+  cifar10.maybe_download_and_extract()
+  if tf.gfile.Exists(FLAGS.eval_dir):
+    tf.gfile.DeleteRecursively(FLAGS.eval_dir)
+  tf.gfile.MakeDirs(FLAGS.eval_dir)
+  evaluate()
+
+
+if __name__ == '__main__':
+  tf.app.run()
